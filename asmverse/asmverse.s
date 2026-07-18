@@ -104,6 +104,12 @@
 .equ S_mainScreen,                  51
 .equ S_maximumFramesPerSecond,      52
 .equ S_display,                     53
+.equ S_setAutoresizingMask,         54
+.equ S_setContentSize,              55
+.equ S_makeFirstResponder,          56
+.equ S_keyDown,                     57
+.equ S_keyCode,                     58
+.equ S_acceptsFirstResponder,       59
 
 // ----------------------------------------------------------- class indices --
 
@@ -122,6 +128,7 @@
 .equ C_NSMenuItem,         12
 .equ C_NSPopUpButton,      13
 .equ C_NSScreen,           14
+.equ C_NSResponder,        15
 
 // ====================================================================== code
 
@@ -151,7 +158,7 @@ _main:
     bl      _objc_msgSend
 
     // Build the application controller class at runtime.
-    CLS     x0, C_NSObject
+    CLS     x0, C_NSResponder
     GADDR   x1, L_s_ctrlname
     mov     x2, #0
     bl      _objc_allocateClassPair
@@ -179,6 +186,18 @@ _main:
     SEL     x1, S_cycleResolution
     GADDR   x2, _cycleResolution
     GADDR   x3, L_s_type_action
+    bl      _class_addMethod
+
+    mov     x0, x20
+    SEL     x1, S_keyDown
+    GADDR   x2, _keyDown
+    GADDR   x3, L_s_type_action
+    bl      _class_addMethod
+
+    mov     x0, x20
+    SEL     x1, S_acceptsFirstResponder
+    GADDR   x2, _acceptsFirstResponder
+    GADDR   x3, L_s_type_bool_noarg
     bl      _class_addMethod
 
     mov     x0, x20
@@ -297,6 +316,7 @@ _main:
     mov     x4, #0
     bl      _objc_msgSend
     mov     x21, x0
+    GSTORE  x21, _window, x9
 
     mov     x0, x21
     SEL     x1, S_center
@@ -374,6 +394,11 @@ _main:
     mov     x2, #1
     bl      _objc_msgSend
 
+    mov     x0, x26
+    SEL     x1, S_setAutoresizingMask
+    mov     x2, #18                       // width + height sizable
+    bl      _objc_msgSend
+
     mov     x0, x24
     SEL     x1, S_addSubview
     mov     x2, x26
@@ -419,6 +444,11 @@ _main:
     SEL     x1, S_setAlphaValue
     GADDR   x9, L_c_hudalpha
     ldr     d0, [x9]
+    bl      _objc_msgSend
+
+    mov     x0, x27
+    SEL     x1, S_setAutoresizingMask
+    mov     x2, #10                       // width sizable, pinned to top
     bl      _objc_msgSend
 
     mov     x0, x24
@@ -475,6 +505,11 @@ _main:
     mov     x2, #0                        // default: efficient 160x100
     bl      _objc_msgSend
 
+    mov     x0, x28
+    SEL     x1, S_setAutoresizingMask
+    mov     x2, #9                        // pinned to top-right
+    bl      _objc_msgSend
+
     mov     x0, x24
     SEL     x1, S_addSubview
     mov     x2, x28
@@ -486,6 +521,11 @@ _main:
     mov     x0, x21
     SEL     x1, S_makeKeyAndOrderFront
     mov     x2, #0
+    bl      _objc_msgSend
+
+    mov     x0, x21
+    SEL     x1, S_makeFirstResponder
+    mov     x2, x22
     bl      _objc_msgSend
 
     mov     x0, x19
@@ -629,13 +669,18 @@ _applyResolutionIndex:
 
 .p2align 2
 _resolutionChanged:
-    stp     x29, x30, [sp, #-16]!
+    stp     x29, x30, [sp, #-32]!
     mov     x29, sp
+    str     x19, [sp, #16]
     mov     x0, x2
     SEL     x1, S_indexOfSelectedItem
     bl      _objc_msgSend
+    mov     x19, x0
     bl      _applyResolutionIndex
-    ldp     x29, x30, [sp], #16
+    mov     x0, x19
+    bl      _resizeForResolution
+    ldr     x19, [sp, #16]
+    ldp     x29, x30, [sp], #32
     ret
 
 // ------------------------------------------------------------ cycleResolution --
@@ -654,6 +699,8 @@ _cycleResolution:
     csel    x19, x19, xzr, lo
     mov     x0, x19
     bl      _applyResolutionIndex
+    mov     x0, x19
+    bl      _resizeForResolution
 
     GLOAD   x0, _popup
     SEL     x1, S_selectItemAtIndex
@@ -662,6 +709,107 @@ _cycleResolution:
 
     ldr     x19, [sp, #16]
     ldp     x29, x30, [sp], #32
+    ret
+
+// -------------------------------------------------------- resizeForResolution --
+// x0 = resolution index. Resize the content surface and return keyboard focus
+// to the controller so arrow keys keep steering after dropdown interaction.
+
+.p2align 2
+_resizeForResolution:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    str     x19, [sp, #16]
+    mov     x19, x0
+
+    GADDR   x9, _windowSizeTable
+    add     x9, x9, x19, lsl #4
+    ldp     d0, d1, [x9]
+    GLOAD   x0, _window
+    SEL     x1, S_setContentSize
+    bl      _objc_msgSend
+
+    GLOAD   x0, _window
+    SEL     x1, S_center
+    bl      _objc_msgSend
+
+    GLOAD   x0, _window
+    SEL     x1, S_makeFirstResponder
+    GLOAD   x2, _controller
+    bl      _objc_msgSend
+
+    ldr     x19, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+
+// ---------------------------------------------------------------- keyDown --
+// Native NSResponder keyboard handling: Left/Right orbit around the black
+// hole; Up/Down change the accretion-plane tilt.
+
+.p2align 2
+_keyDown:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    mov     x0, x2
+    SEL     x1, S_keyCode
+    bl      _objc_msgSend
+
+    cmp     w0, #123                      // left
+    b.eq    Lkey_left
+    cmp     w0, #124                      // right
+    b.eq    Lkey_right
+    cmp     w0, #125                      // down
+    b.eq    Lkey_down
+    cmp     w0, #126                      // up
+    b.eq    Lkey_up
+    b       Lkey_done
+
+Lkey_left:
+    GADDR   x9, _cameraOrbit
+    ldr     w10, [x9]
+    sub     w10, w10, #4
+    mov     w11, #-32
+    cmp     w10, w11
+    csel    w10, w10, w11, ge
+    str     w10, [x9]
+    b       Lkey_done
+
+Lkey_right:
+    GADDR   x9, _cameraOrbit
+    ldr     w10, [x9]
+    add     w10, w10, #4
+    mov     w11, #32
+    cmp     w10, w11
+    csel    w10, w10, w11, le
+    str     w10, [x9]
+    b       Lkey_done
+
+Lkey_down:
+    GADDR   x9, _cameraTilt
+    ldr     w10, [x9]
+    sub     w10, w10, #8
+    mov     w11, #32
+    cmp     w10, w11
+    csel    w10, w10, w11, ge
+    str     w10, [x9]
+    b       Lkey_done
+
+Lkey_up:
+    GADDR   x9, _cameraTilt
+    ldr     w10, [x9]
+    add     w10, w10, #8
+    mov     w11, #128
+    cmp     w10, w11
+    csel    w10, w10, w11, le
+    str     w10, [x9]
+
+Lkey_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+.p2align 2
+_acceptsFirstResponder:
+    mov     w0, #1
     ret
 
 // -------------------------------------------------------------- createBitmap --
@@ -885,14 +1033,18 @@ Lstats_check:
     ldr     d2, [sp, #72]
     GLOAD   x11, _renderWidth
     GLOAD   x12, _renderHeight
-    sub     sp, sp, #48
+    GLOAD   x13, _cameraOrbit
+    GLOAD   x14, _cameraTilt
+    sub     sp, sp, #64
     str     d0, [sp]
     str     d1, [sp, #8]
     str     d2, [sp, #16]
     str     x11, [sp, #24]
     str     x12, [sp, #32]
+    str     x13, [sp, #40]
+    str     x14, [sp, #48]
     bl      _snprintf
-    add     sp, sp, #48
+    add     sp, sp, #64
 
     GADDR   x0, _statsBuf
     bl      _puts
@@ -921,7 +1073,7 @@ Lstats_done:
 
 .p2align 2
 _render:
-    stp     x29, x30, [sp, #-112]!
+    stp     x29, x30, [sp, #-128]!
     mov     x29, sp
     stp     x19, x20, [sp, #16]
     stp     x21, x22, [sp, #32]
@@ -938,26 +1090,29 @@ _render:
     GLOAD   x8, _coordScale
     str     x8, [sp, #96]
 
-    // Build an unmistakably moving orbital beacon from two phase-shifted
-    // triangle waves. Coordinates stay in the scene's 640x400 virtual space.
-    lsr     w8, w20, #1                   // one phase step every two frames
-    and     w8, w8, #255
-    sub     w9, w8, #128
-    cmp     w9, #0
-    cneg    w9, w9, lt
-    sub     w9, w9, #64
-    lsl     w9, w9, #1                    // hotspot x: -128 .. +128
-    str     w9, [sp, #104]
+    GLOAD   x8, _cameraOrbit
+    str     w8, [sp, #112]
+    GLOAD   x8, _cameraTilt
+    str     w8, [sp, #116]
 
-    add     w10, w8, #64
-    and     w10, w10, #255
-    sub     w10, w10, #128
-    cmp     w10, #0
-    cneg    w10, w10, lt
-    sub     w10, w10, #64
-    asr     w10, w10, #2                  // ellipse height: -16 .. +16
-    sub     w10, w10, w9, asr #3          // match the disc's tilt
-    str     w10, [sp, #108]
+    // Sample an exact point on the canonical ellipse, then invert the active
+    // camera shear and tilt so the beacon stays glued to the rendered ring.
+    GADDR   x8, _orbitTable
+    lsr     w9, w20, #2
+    and     w9, w9, #63
+    add     x8, x8, x9, lsl #2
+    ldrsh   w9, [x8]                      // canonical x
+    ldrsh   w10, [x8, #2]                 // canonical plane y
+    str     w9, [sp, #104]
+    str     w10, [sp, #120]               // also determines front/back
+    lsl     w11, w10, #6
+    ldr     w12, [sp, #116]
+    sdiv    w11, w11, w12                 // undo camera tilt
+    ldr     w12, [sp, #112]
+    mul     w13, w9, w12
+    asr     w13, w13, #6
+    sub     w11, w11, w13                 // undo camera orbit shear
+    str     w11, [sp, #108]
     mov     w21, #0                       // y
 
 Lrow:
@@ -995,11 +1150,14 @@ Lpixel:
     add     w11, w11, #3
     add     w12, w9, #10                  // blue
 
-    // Stable star positions from a two-dimensional xorshift hash.
+    // Stable 2x2 flare cells from a two-dimensional xorshift hash. Grouping
+    // samples makes scintillation readable even at native HIGH resolution.
+    lsr     w8, w24, #1
     mov     w14, #1973
-    madd    w28, w24, w14, wzr
+    madd    w28, w8, w14, wzr
+    lsr     w8, w21, #1
     mov     w14, #9277
-    madd    w28, w21, w14, w28
+    madd    w28, w8, w14, w28
     movz    w14, #0x21eb
     movk    w14, #0x68bc, lsl #16
     add     w28, w28, w14
@@ -1008,19 +1166,32 @@ Lpixel:
     eor     w28, w28, w28, lsl #5
 
     and     w8, w28, #0x3fff
-    cmp     w8, #5
+    cmp     w8, #30
     b.hi    Ldisk
-    eor     w8, w28, w20, lsl #11
-    lsr     w8, w8, #16
+    lsr     w8, w20, #3
+    add     w8, w8, w28, lsr #16
     and     w8, w8, #63
-    add     w8, w8, #190
+    sub     w8, w8, #32
+    cmp     w8, #0
+    cneg    w8, w8, lt
+    lsl     w8, w8, #3                    // fade fully out, then flare white
+    CLAMP255 w8, w15
     mov     w10, w8
-    sub     w11, w8, #20
-    add     w12, w8, #2
+    add     w11, w8, w8, lsr #1
+    lsr     w11, w11, #1
+    add     w12, w8, #24
+    CLAMP255 w12, w15
 
 Ldisk:
-    // A tilted elliptical ring becomes the black hole's accretion disc.
-    add     w8, w22, w25, asr #3
+    // Camera-controlled shear orbits around the object; vertical scale tilts
+    // its accretion plane toward or away from edge-on.
+    ldr     w14, [sp, #112]
+    mul     w8, w25, w14
+    asr     w8, w8, #6
+    add     w8, w22, w8
+    ldr     w14, [sp, #116]
+    mul     w8, w8, w14
+    asr     w8, w8, #6
     mul     w8, w8, w8
     lsl     w8, w8, #6
     add     w8, w8, w26
@@ -1098,10 +1269,63 @@ Lvignette:
 
     // Nothing survives inside the event horizon.
     cmp     w27, #1100
-    b.hs    Lpack
+    b.hs    LfrontArc
     mov     w10, #0
     mov     w11, #0
     mov     w12, #1
+
+LfrontArc:
+    // Redraw only the near half after the event horizon. The far half remains
+    // behind the planet while the near half visibly crosses its face.
+    ldr     w14, [sp, #112]
+    mul     w8, w25, w14
+    asr     w8, w8, #6
+    add     w8, w22, w8
+    ldr     w14, [sp, #116]
+    mul     w8, w8, w14
+    asr     w8, w8, #6
+    cmp     w8, #0
+    b.le    LfrontBeacon
+    mul     w8, w8, w8
+    lsl     w8, w8, #6
+    add     w8, w8, w26
+    mov     w13, #22500
+    sub     w8, w8, w13
+    cmp     w8, #0
+    cneg    w8, w8, lt
+    mov     w14, #7000
+    subs    w14, w14, w8
+    b.le    LfrontBeacon
+    lsr     w14, w14, #4
+    CLAMP255 w14, w15
+    add     w10, w10, w14
+    CLAMP255 w10, w15
+    add     w11, w11, w14, lsr #1
+    CLAMP255 w11, w15
+    add     w12, w12, w14, lsr #4
+    CLAMP255 w12, w15
+
+LfrontBeacon:
+    // The near-side beacon must also be redrawn over the event horizon.
+    ldr     w8, [sp, #120]
+    cmp     w8, #0
+    b.le    Lpack
+    ldr     w8, [sp, #104]
+    sub     w8, w25, w8
+    mul     w8, w8, w8
+    ldr     w14, [sp, #108]
+    sub     w14, w22, w14
+    mul     w14, w14, w14
+    add     w8, w8, w14
+    cmp     w8, #160
+    b.hs    Lpack
+    mov     w13, #160
+    sub     w13, w13, w8
+    add     w10, w10, w13
+    CLAMP255 w10, w15
+    add     w11, w11, w13
+    CLAMP255 w11, w15
+    mov     w12, #255
 
 Lpack:
     orr     w13, w10, w11, lsl #8
@@ -1130,7 +1354,7 @@ Lpack:
     ldp     x23, x24, [sp, #48]
     ldp     x21, x22, [sp, #32]
     ldp     x19, x20, [sp, #16]
-    ldp     x29, x30, [sp], #112
+    ldp     x29, x30, [sp], #128
     ret
 
 // -------------------------------------------------------- shouldTerminate ---
@@ -1146,6 +1370,7 @@ _shouldTerminate:
 L_s_ctrlname:       .asciz "ASMVerseController"
 L_s_type_action:    .asciz "v@:@"
 L_s_type_bool:      .asciz "c@:@"
+L_s_type_bool_noarg:.asciz "c@:"
 L_s_title:          .asciz "ASMVERSE — pure ARM64 procedural universe"
 L_s_hud:            .asciz "ASMVERSE  //  STARTING LIVE TELEMETRY..."
 L_s_quit:           .asciz "Quit ASMVERSE"
@@ -1156,7 +1381,7 @@ L_s_resLow:         .asciz "160 x 100  LOW"
 L_s_resMedium:      .asciz "320 x 200  MED"
 L_s_resHigh:        .asciz "640 x 400  HIGH"
 L_s_deviceRGB:      .asciz "NSDeviceRGBColorSpace"
-L_fmt_stats:        .asciz "FPS %5.1f // CPU %4.1f%% // MEM %5.1f MB // %lux%lu"
+L_fmt_stats:        .asciz "FPS %5.1f // CPU %4.1f%% // MEM %5.1f MB // %lux%lu // CAM %+ld/%lu"
 
 Ln_sharedApplication:        .asciz "sharedApplication"
 Ln_setActivationPolicy:      .asciz "setActivationPolicy:"
@@ -1212,6 +1437,12 @@ Ln_cycleResolution:           .asciz "cycleResolution:"
 Ln_mainScreen:                .asciz "mainScreen"
 Ln_maximumFramesPerSecond:    .asciz "maximumFramesPerSecond"
 Ln_display:                   .asciz "display"
+Ln_setAutoresizingMask:       .asciz "setAutoresizingMask:"
+Ln_setContentSize:            .asciz "setContentSize:"
+Ln_makeFirstResponder:        .asciz "makeFirstResponder:"
+Ln_keyDown:                   .asciz "keyDown:"
+Ln_keyCode:                   .asciz "keyCode"
+Ln_acceptsFirstResponder:     .asciz "acceptsFirstResponder"
 
 Lc_NSApplication:    .asciz "NSApplication"
 Lc_NSWindow:         .asciz "NSWindow"
@@ -1228,6 +1459,7 @@ Lc_NSMenu:           .asciz "NSMenu"
 Lc_NSMenuItem:       .asciz "NSMenuItem"
 Lc_NSPopUpButton:    .asciz "NSPopUpButton"
 Lc_NSScreen:          .asciz "NSScreen"
+Lc_NSResponder:       .asciz "NSResponder"
 
 .section __TEXT,__const
 .p2align 3
@@ -1246,6 +1478,30 @@ _resolutionTable:
     .quad 160, 100, 4
     .quad 320, 200, 2
     .quad 640, 400, 1
+
+_windowSizeTable:
+    .double 640.0, 400.0
+    .double 800.0, 500.0
+    .double 1024.0, 640.0
+
+.p2align 2
+_orbitTable:
+    .short  150, 0, 149, 2, 147, 4, 144, 5
+    .short  139, 7, 132, 9, 125, 10, 116, 12
+    .short  106, 13, 95, 14, 83, 16, 71, 17
+    .short  57, 17, 44, 18, 29, 18, 15, 19
+    .short  0, 19, -15, 19, -29, 18, -44, 18
+    .short  -57, 17, -71, 17, -83, 16, -95, 14
+    .short  -106, 13, -116, 12, -125, 10, -132, 9
+    .short  -139, 7, -144, 5, -147, 4, -149, 2
+    .short  -150, 0, -149, -2, -147, -4, -144, -5
+    .short  -139, -7, -132, -9, -125, -10, -116, -12
+    .short  -106, -13, -95, -14, -83, -16, -71, -17
+    .short  -57, -17, -44, -18, -29, -18, -15, -19
+    .short  0, -19, 15, -19, 29, -18, 44, -18
+    .short  57, -17, 71, -17, 83, -16, 95, -14
+    .short  106, -13, 116, -12, 125, -10, 132, -9
+    .short  139, -7, 144, -5, 147, -4, 149, -2
 
 .section __DATA,__data
 .p2align 3
@@ -1304,6 +1560,12 @@ _sel_names:
     .quad Ln_mainScreen
     .quad Ln_maximumFramesPerSecond
     .quad Ln_display
+    .quad Ln_setAutoresizingMask
+    .quad Ln_setContentSize
+    .quad Ln_makeFirstResponder
+    .quad Ln_keyDown
+    .quad Ln_keyCode
+    .quad Ln_acceptsFirstResponder
     .quad 0
 
 _class_names:
@@ -1322,6 +1584,7 @@ _class_names:
     .quad Lc_NSMenuItem
     .quad Lc_NSPopUpButton
     .quad Lc_NSScreen
+    .quad Lc_NSResponder
     .quad 0
 
 _pixels:     .quad 0
@@ -1330,11 +1593,14 @@ _imageView:  .quad 0
 _hud:        .quad 0
 _popup:      .quad 0
 _controller: .quad 0
+_window:     .quad 0
 _frame:      .quad 0
 _renderWidth:    .quad 160
 _renderHeight:   .quad 100
 _coordScale:     .quad 4
 _resolutionIndex:.quad 0
+_cameraOrbit:   .quad 8
+_cameraTilt:    .quad 64
 _statsTime:  .double 0.0
 _lastCpuUs:  .quad 0
 _statsFrames:.quad 0
@@ -1347,5 +1613,5 @@ _taskInfoCount:
     .long 12
     .space 4
 
-_sels:       .space 54 * 8
-_classes:    .space 15 * 8
+_sels:       .space 60 * 8
+_classes:    .space 16 * 8
