@@ -11,14 +11,15 @@ all scene generation and rendering is implemented in `asmverse.s`.
 ## What it renders
 
 - A rotating complex-quadratic nebula field
-- Deterministic xorshift stars with animated scintillation
-- A tilted accretion disc with moving hot bands
-- A blue-white orbital beacon with clearly visible motion
+- Deterministic xorshift star flares that visibly scintillate
+- A camera-controlled accretion disc with correct front/back occlusion
+- A blue-white orbital beacon locked exactly to the disc path
 - A violet photon ring and black event horizon
 - Radial falloff and color grading
 - A live heads-up display with measured FPS, process CPU percentage, and
   current resident-memory usage and render resolution
 - Runtime resolution switching between 160×100, 320×200, and 640×400
+- Arrow-key camera orbit and tilt controls
 - A native Cmd+Q menu
 
 ## Requirements
@@ -42,11 +43,16 @@ The renderer is display-paced rather than fixed at 30 FPS. It queries
 presentable refresh rate—typically 120 Hz on a MacBook Pro—without wasting CPU
 on frames the screen cannot show. Select a resolution from the upper-right
 dropdown or press **Cmd+R** to cycle through low, medium, and high resolution.
-The app starts in CPU-efficient LOW mode. Lower resolutions preserve the same
-virtual scene coordinates and are scaled to the 640×400 window.
+The app starts in CPU-efficient LOW mode. The native content window changes to
+640×400, 800×500, or 1024×640 with the selected render resolution. Lower
+resolutions preserve the same virtual scene coordinates.
 
-The next milestones are SIMD batching, interactive camera motion, procedural
-audio, and signed-distance-field ray marching.
+Use **Left** and **Right** to orbit around the black hole. Use **Up** and
+**Down** to tilt the accretion plane toward or away from edge-on. The ring,
+front/back occlusion, and orbital beacon all follow the active camera geometry.
+
+The next milestones are SIMD batching, procedural audio, and signed-distance-
+field ray marching.
 
 Telemetry is refreshed once per second in the HUD and mirrored to stdout when
 the unbundled executable is launched from a terminal. To prevent AppKit from
