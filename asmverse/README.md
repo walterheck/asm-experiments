@@ -13,9 +13,13 @@ all scene generation and rendering is implemented in `asmverse.s`.
 - A rotating complex-quadratic nebula field
 - Deterministic xorshift stars with animated scintillation
 - A tilted accretion disc with moving hot bands
+- A blue-white orbital beacon with clearly visible motion
 - A violet photon ring and black event horizon
 - Radial falloff and color grading
-- A native heads-up display and Cmd+Q menu
+- A live heads-up display with measured FPS, process CPU percentage, and
+  current resident-memory usage and render resolution
+- Runtime resolution switching between 160×100, 320×200, and 640×400
+- A native Cmd+Q menu
 
 ## Requirements
 
@@ -33,9 +37,24 @@ open ASMVERSE.app
 `make run` performs both steps. The unbundled `./asmverse` executable remains
 available for terminal-driven debugging.
 
-The renderer currently targets 640×400 at 30 frames per second. The next
-milestones are SIMD batching, interactive camera motion, procedural audio, and
-signed-distance-field ray marching.
+The renderer is display-paced rather than fixed at 30 FPS. It queries
+`NSScreen.maximumFramesPerSecond` and targets the active display's fastest
+presentable refresh rate—typically 120 Hz on a MacBook Pro—without wasting CPU
+on frames the screen cannot show. Select a resolution from the upper-right
+dropdown or press **Cmd+R** to cycle through low, medium, and high resolution.
+The app starts in CPU-efficient LOW mode. Lower resolutions preserve the same
+virtual scene coordinates and are scaled to the 640×400 window.
+
+The next milestones are SIMD batching, interactive camera motion, procedural
+audio, and signed-distance-field ray marching.
+
+Telemetry is refreshed once per second in the HUD and mirrored to stdout when
+the unbundled executable is launched from a terminal. To prevent AppKit from
+presenting a stale cached bitmap, each frame is rendered into a fresh logical-
+resolution `NSBitmapImageRep` and wrapped in a fresh `NSImage`; both ownership
+references are released immediately after `NSImageView` retains the image.
+This keeps LOW and MED substantially cheaper than allocating a full 640×400
+surface while retaining cache-safe, tear-free animation.
 
 ## Purity boundary
 

@@ -89,6 +89,21 @@
 .equ S_setSubmenu,                 36
 .equ S_terminate,                  37
 .equ S_recache,                    38
+.equ S_setImage,                   39
+.equ S_release,                    40
+.equ S_setStringValue,             41
+.equ S_setCacheMode,               42
+.equ S_initWithFramePullsDown,      43
+.equ S_addItemWithTitle,            44
+.equ S_selectItemAtIndex,           45
+.equ S_indexOfSelectedItem,         46
+.equ S_setTarget,                   47
+.equ S_setAction,                   48
+.equ S_resolutionChanged,           49
+.equ S_cycleResolution,             50
+.equ S_mainScreen,                  51
+.equ S_maximumFramesPerSecond,      52
+.equ S_display,                     53
 
 // ----------------------------------------------------------- class indices --
 
@@ -105,6 +120,8 @@
 .equ C_NSColor,            10
 .equ C_NSMenu,             11
 .equ C_NSMenuItem,         12
+.equ C_NSPopUpButton,      13
+.equ C_NSScreen,           14
 
 // ====================================================================== code
 
@@ -150,6 +167,18 @@ _main:
     SEL     x1, S_shouldTerminate
     GADDR   x2, _shouldTerminate
     GADDR   x3, L_s_type_bool
+    bl      _class_addMethod
+
+    mov     x0, x20
+    SEL     x1, S_resolutionChanged
+    GADDR   x2, _resolutionChanged
+    GADDR   x3, L_s_type_action
+    bl      _class_addMethod
+
+    mov     x0, x20
+    SEL     x1, S_cycleResolution
+    GADDR   x2, _cycleResolution
+    GADDR   x3, L_s_type_action
     bl      _class_addMethod
 
     mov     x0, x20
@@ -222,6 +251,33 @@ _main:
     mov     x2, x28
     bl      _objc_msgSend
 
+    GADDR   x0, L_s_cycleResolution
+    bl      _mkstr
+    mov     x23, x0
+    GADDR   x0, L_s_r
+    bl      _mkstr
+    mov     x24, x0
+
+    CLS     x0, C_NSMenuItem
+    SEL     x1, S_alloc
+    bl      _objc_msgSend
+    SEL     x1, S_initWithTitleActionKey
+    mov     x2, x23
+    SEL     x3, S_cycleResolution
+    mov     x4, x24
+    bl      _objc_msgSend
+    mov     x28, x0
+
+    mov     x0, x28
+    SEL     x1, S_setTarget
+    mov     x2, x22
+    bl      _objc_msgSend
+
+    mov     x0, x27
+    SEL     x1, S_addItem
+    mov     x2, x28
+    bl      _objc_msgSend
+
     mov     x0, x26
     SEL     x1, S_setSubmenu
     mov     x2, x27
@@ -261,34 +317,10 @@ _main:
     // NSBitmapImageRep owns the mutable RGBA framebuffer.
     GADDR   x0, L_s_deviceRGB
     bl      _mkstr
-    mov     x28, x0
+    GSTORE  x0, _deviceRGB, x9
 
-    CLS     x0, C_NSBitmapImageRep
-    SEL     x1, S_alloc
-    bl      _objc_msgSend
-    SEL     x1, S_initBitmap
-    mov     x2, #0                        // let AppKit allocate planes
-    mov     x3, #WIDTH
-    mov     x4, #HEIGHT
-    mov     x5, #8                        // bits per sample
-    mov     x6, #4                        // RGBA
-    mov     x7, #1                        // alpha
-    sub     sp, sp, #32
-    str     xzr, [sp]                     // non-planar
-    str     x28, [sp, #8]                 // device RGB
-    mov     x9, #ROW_BYTES
-    str     x9, [sp, #16]
-    mov     x9, #32
-    str     x9, [sp, #24]
-    bl      _objc_msgSend
-    add     sp, sp, #32
+    bl      _createBitmap
     mov     x23, x0
-    GSTORE  x23, _bitmap, x9
-
-    mov     x0, x23
-    SEL     x1, S_bitmapData
-    bl      _objc_msgSend
-    GSTORE  x0, _pixels, x9
 
     // Wrap the bitmap in an NSImage and present it in an NSImageView.
     CLS     x0, C_NSImage
@@ -299,7 +331,11 @@ _main:
     ldp     d0, d1, [x9]
     bl      _objc_msgSend
     mov     x25, x0
-    GSTORE  x25, _image, x9
+
+    mov     x0, x25
+    SEL     x1, S_setCacheMode
+    mov     x2, #3                        // NSImageCacheNever
+    bl      _objc_msgSend
 
     mov     x0, x25
     SEL     x1, S_addRepresentation
@@ -312,6 +348,14 @@ _main:
     bl      _objc_msgSend
     mov     x26, x0
     GSTORE  x26, _imageView, x9
+
+    mov     x0, x25                       // image view retained the image
+    SEL     x1, S_release
+    bl      _objc_msgSend
+
+    mov     x0, x23                       // image retained the representation
+    SEL     x1, S_release
+    bl      _objc_msgSend
 
     mov     x0, x26
     SEL     x1, S_setFrame
@@ -343,6 +387,7 @@ _main:
     SEL     x1, S_labelWithString
     bl      _objc_msgSend
     mov     x27, x0
+    GSTORE  x27, _hud, x9
 
     mov     x0, x27
     SEL     x1, S_setFrame
@@ -381,6 +426,60 @@ _main:
     mov     x2, x27
     bl      _objc_msgSend
 
+    // Resolution selector. Cmd+R invokes the same state transition.
+    CLS     x0, C_NSPopUpButton
+    SEL     x1, S_alloc
+    bl      _objc_msgSend
+    SEL     x1, S_initWithFramePullsDown
+    GADDR   x9, L_c_popupframe
+    ldp     d0, d1, [x9]
+    ldp     d2, d3, [x9, #16]
+    mov     x2, #0
+    bl      _objc_msgSend
+    mov     x28, x0
+    GSTORE  x28, _popup, x9
+
+    GADDR   x0, L_s_resLow
+    bl      _mkstr
+    mov     x2, x0
+    mov     x0, x28
+    SEL     x1, S_addItemWithTitle
+    bl      _objc_msgSend
+
+    GADDR   x0, L_s_resMedium
+    bl      _mkstr
+    mov     x2, x0
+    mov     x0, x28
+    SEL     x1, S_addItemWithTitle
+    bl      _objc_msgSend
+
+    GADDR   x0, L_s_resHigh
+    bl      _mkstr
+    mov     x2, x0
+    mov     x0, x28
+    SEL     x1, S_addItemWithTitle
+    bl      _objc_msgSend
+
+    mov     x0, x28
+    SEL     x1, S_setTarget
+    mov     x2, x22
+    bl      _objc_msgSend
+
+    mov     x0, x28
+    SEL     x1, S_setAction
+    SEL     x2, S_resolutionChanged
+    bl      _objc_msgSend
+
+    mov     x0, x28
+    SEL     x1, S_selectItemAtIndex
+    mov     x2, #0                        // default: efficient 160x100
+    bl      _objc_msgSend
+
+    mov     x0, x24
+    SEL     x1, S_addSubview
+    mov     x2, x28
+    bl      _objc_msgSend
+
     // Draw frame zero before exposing the window.
     bl      _render
 
@@ -394,11 +493,22 @@ _main:
     mov     x2, #1
     bl      _objc_msgSend
 
-    // A run-loop timer drives the integer renderer at 30 frames per second.
+    // Pace at the active display's maximum refresh rate. Rendering thousands
+    // of frames that AppKit cannot present only burns CPU and starves drawing.
+    CLS     x0, C_NSScreen
+    SEL     x1, S_mainScreen
+    bl      _objc_msgSend
+    SEL     x1, S_maximumFramesPerSecond
+    bl      _objc_msgSend
+    mov     x9, #120
+    cmp     x0, #1
+    csel    x9, x0, x9, ge
+    scvtf   d1, x9
+    fmov    d0, #1.0
+    fdiv    d0, d0, d1
+
     CLS     x0, C_NSTimer
     SEL     x1, S_scheduledTimer
-    GADDR   x9, L_c_frameInterval
-    ldr     d0, [x9]
     mov     x2, x22
     SEL     x3, S_tick
     mov     x4, #0
@@ -466,26 +576,338 @@ _mkstr:
 
 .p2align 2
 _tick:
-    stp     x29, x30, [sp, #-16]!
+    stp     x29, x30, [sp, #-48]!
     mov     x29, sp
+    stp     x19, x20, [sp, #16]
 
     GADDR   x9, _frame
     ldr     x10, [x9]
     add     x10, x10, #1
     str     x10, [x9]
 
-    bl      _render
+    bl      _objc_autoreleasePoolPush
+    mov     x20, x0
 
-    GLOAD   x0, _image
-    SEL     x1, S_recache
+    bl      _createBitmap
+    mov     x19, x0
+    bl      _render
+    mov     x0, x19
+    bl      _presentFrame
+    bl      _updateStats
+
+    mov     x0, x20
+    bl      _objc_autoreleasePoolPop
+
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #48
+    ret
+
+// ------------------------------------------------------ applyResolutionIndex --
+// x0 = 0..2. Updates the render dimensions and virtual-coordinate scale.
+
+.p2align 2
+_applyResolutionIndex:
+    cmp     x0, #2
+    csel    x0, x0, xzr, ls
+    GSTORE  x0, _resolutionIndex, x9
+
+    GADDR   x9, _resolutionTable
+    mov     x10, #24
+    madd    x9, x0, x10, x9
+    ldp     x11, x12, [x9]
+    ldr     x13, [x9, #16]
+    GSTORE  x11, _renderWidth, x14
+    GSTORE  x12, _renderHeight, x14
+    GSTORE  x13, _coordScale, x14
+
+    GSTORE  xzr, _statsFrames, x14
+    GSTORE  xzr, _statsTime, x14
+    ret
+
+// --------------------------------------------------------- resolutionChanged --
+// IMP for -[ASMVerseController resolutionChanged:].
+
+.p2align 2
+_resolutionChanged:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    mov     x0, x2
+    SEL     x1, S_indexOfSelectedItem
+    bl      _objc_msgSend
+    bl      _applyResolutionIndex
+    ldp     x29, x30, [sp], #16
+    ret
+
+// ------------------------------------------------------------ cycleResolution --
+// IMP for Cmd+R. Cycles low -> medium -> high -> low and synchronizes the
+// dropdown selection.
+
+.p2align 2
+_cycleResolution:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    str     x19, [sp, #16]
+
+    GLOAD   x19, _resolutionIndex
+    add     x19, x19, #1
+    cmp     x19, #3
+    csel    x19, x19, xzr, lo
+    mov     x0, x19
+    bl      _applyResolutionIndex
+
+    GLOAD   x0, _popup
+    SEL     x1, S_selectItemAtIndex
+    mov     x2, x19
+    bl      _objc_msgSend
+
+    ldr     x19, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+
+// -------------------------------------------------------------- createBitmap --
+// Allocates a fresh bitmap representation for one rendered frame and points
+// _pixels at its storage. The caller owns the returned representation.
+
+.p2align 2
+_createBitmap:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    str     x19, [sp, #16]
+
+    CLS     x0, C_NSBitmapImageRep
+    SEL     x1, S_alloc
+    bl      _objc_msgSend
+    SEL     x1, S_initBitmap
+    mov     x2, #0                        // let AppKit allocate planes
+    GLOAD   x3, _renderWidth
+    GLOAD   x4, _renderHeight
+    mov     x5, #8                        // bits per sample
+    mov     x6, #4                        // RGBA
+    mov     x7, #1                        // alpha
+    sub     sp, sp, #32
+    str     xzr, [sp]                     // non-planar
+    GLOAD   x9, _deviceRGB
+    str     x9, [sp, #8]
+    lsl     x9, x3, #2
+    str     x9, [sp, #16]
+    mov     x9, #32
+    str     x9, [sp, #24]
+    bl      _objc_msgSend
+    add     sp, sp, #32
+    mov     x19, x0
+
+    mov     x0, x19
+    SEL     x1, S_bitmapData
+    bl      _objc_msgSend
+    GSTORE  x0, _pixels, x9
+
+    mov     x0, x19
+    ldr     x19, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+
+// ------------------------------------------------------------- presentFrame --
+// x0 = freshly rendered NSBitmapImageRep. A fresh representation and NSImage
+// cache identity on every tick prevents AppKit from presenting stale pixels.
+// NSImageView retains the image; explicit releases keep memory stable.
+
+.p2align 2
+_presentFrame:
+    stp     x29, x30, [sp, #-48]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #16]
+    mov     x19, x0                       // bitmap representation
+
+    CLS     x0, C_NSImage
+    SEL     x1, S_alloc
+    bl      _objc_msgSend
+    SEL     x1, S_initWithSize
+    GADDR   x9, L_c_size
+    ldp     d0, d1, [x9]
+    bl      _objc_msgSend
+    mov     x20, x0                       // image
+
+    mov     x0, x20
+    SEL     x1, S_setCacheMode
+    mov     x2, #3                        // NSImageCacheNever
+    bl      _objc_msgSend
+
+    mov     x0, x20
+    SEL     x1, S_addRepresentation
+    mov     x2, x19
     bl      _objc_msgSend
 
     GLOAD   x0, _imageView
-    SEL     x1, S_setNeedsDisplay
-    mov     x2, #1
+    SEL     x1, S_setImage
+    mov     x2, x20
     bl      _objc_msgSend
 
+    GLOAD   x0, _imageView
+    SEL     x1, S_display
+    bl      _objc_msgSend
+
+    mov     x0, x20
+    SEL     x1, S_release
+    bl      _objc_msgSend
+
+    mov     x0, x19
+    SEL     x1, S_release
+    bl      _objc_msgSend
+
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #48
+    ret
+
+// -------------------------------------------------------------- readCpuUs ---
+// Returns cumulative user + system CPU time in microseconds and refreshes the
+// rusage buffer. Darwin reports ru_maxrss in bytes at offset 32.
+
+.p2align 2
+_readCpuUs:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    mov     x0, #0                        // RUSAGE_SELF
+    GADDR   x1, _rusage
+    bl      _getrusage
+
+    GADDR   x9, _rusage
+    ldr     x10, [x9]                    // user seconds
+    ldr     w11, [x9, #8]                // user microseconds
+    movz    x12, #0x4240
+    movk    x12, #0x000f, lsl #16
+    madd    x10, x10, x12, x11
+    ldr     x13, [x9, #16]               // system seconds
+    ldr     w14, [x9, #24]               // system microseconds
+    madd    x13, x13, x12, x14
+    add     x0, x10, x13
+
     ldp     x29, x30, [sp], #16
+    ret
+
+// ------------------------------------------------------- readResidentBytes ---
+// Returns current resident memory from MACH_TASK_BASIC_INFO, rather than the
+// monotonically increasing ru_maxrss high-water mark.
+
+.p2align 2
+_readResidentBytes:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    adrp    x9, _mach_task_self_@GOTPAGE
+    ldr     x9, [x9, _mach_task_self_@GOTPAGEOFF]
+    ldr     w0, [x9]
+    mov     w1, #20                       // MACH_TASK_BASIC_INFO
+    GADDR   x2, _taskInfo
+    GADDR   x3, _taskInfoCount
+    mov     w9, #12                       // reset in/out count each sample
+    str     w9, [x3]
+    bl      _task_info
+
+    GADDR   x9, _taskInfo
+    ldr     x0, [x9, #8]                 // resident_size
+    ldp     x29, x30, [sp], #16
+    ret
+
+// ------------------------------------------------------------- updateStats ---
+// Once per second: FPS = rendered frames / wall time; CPU = process CPU-time
+// delta / wall-time delta; memory = current Mach resident size. The same line
+// is shown in the HUD and printed to stdout for terminal launches.
+
+.p2align 2
+_updateStats:
+    stp     x29, x30, [sp, #-80]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #16]
+    stp     x21, x22, [sp, #32]
+
+    GADDR   x19, _statsFrames
+    ldr     x20, [x19]
+    add     x20, x20, #1
+    str     x20, [x19]
+
+    bl      _CACurrentMediaTime
+    fmov    d4, d0                        // now
+    GADDR   x21, _statsTime
+    ldr     d5, [x21]
+    fcmp    d5, #0.0
+    b.ne    Lstats_check
+
+    str     d4, [x21]
+    str     xzr, [x19]
+    bl      _readCpuUs
+    GSTORE  x0, _lastCpuUs, x9
+    b       Lstats_done
+
+Lstats_check:
+    fsub    d3, d4, d5                    // elapsed wall seconds
+    GADDR   x9, L_c_one
+    ldr     d2, [x9]
+    fcmp    d3, d2
+    b.lt    Lstats_done
+
+    str     d4, [x21]
+    str     d3, [sp, #48]
+    scvtf   d0, x20
+    fdiv    d0, d0, d3                    // measured FPS
+    str     d0, [sp, #56]
+    str     xzr, [x19]
+
+    bl      _readCpuUs
+    mov     x22, x0
+    GADDR   x9, _lastCpuUs
+    ldr     x10, [x9]
+    sub     x10, x22, x10
+    str     x22, [x9]
+
+    scvtf   d1, x10
+    GADDR   x9, L_c_million
+    ldr     d2, [x9]
+    fdiv    d1, d1, d2                    // CPU seconds
+    ldr     d3, [sp, #48]
+    fdiv    d1, d1, d3
+    GADDR   x9, L_c_hundred
+    ldr     d2, [x9]
+    fmul    d1, d1, d2                    // process CPU percent
+    str     d1, [sp, #64]
+
+    bl      _readResidentBytes
+    scvtf   d2, x0
+    GADDR   x9, L_c_megabyte
+    ldr     d3, [x9]
+    fdiv    d2, d2, d3
+    str     d2, [sp, #72]
+
+    GADDR   x0, _statsBuf
+    mov     x1, #160
+    GADDR   x2, L_fmt_stats
+    ldr     d0, [sp, #56]
+    ldr     d1, [sp, #64]
+    ldr     d2, [sp, #72]
+    GLOAD   x11, _renderWidth
+    GLOAD   x12, _renderHeight
+    sub     sp, sp, #48
+    str     d0, [sp]
+    str     d1, [sp, #8]
+    str     d2, [sp, #16]
+    str     x11, [sp, #24]
+    str     x12, [sp, #32]
+    bl      _snprintf
+    add     sp, sp, #48
+
+    GADDR   x0, _statsBuf
+    bl      _puts
+
+    GADDR   x0, _statsBuf
+    bl      _mkstr
+    mov     x2, x0
+    GLOAD   x0, _hud
+    SEL     x1, S_setStringValue
+    bl      _objc_msgSend
+
+Lstats_done:
+    ldp     x21, x22, [sp, #32]
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #80
     ret
 
 // ------------------------------------------------------------------ render --
@@ -499,7 +921,7 @@ _tick:
 
 .p2align 2
 _render:
-    stp     x29, x30, [sp, #-96]!
+    stp     x29, x30, [sp, #-112]!
     mov     x29, sp
     stp     x19, x20, [sp, #16]
     stp     x21, x22, [sp, #32]
@@ -509,15 +931,48 @@ _render:
 
     GLOAD   x19, _pixels
     GLOAD   x20, _frame
+    GLOAD   x16, _renderWidth
+    GLOAD   x17, _renderHeight
+    // x18 is reserved by Darwin and may be clobbered asynchronously. Keep the
+    // selected scale in a stack local instead.
+    GLOAD   x8, _coordScale
+    str     x8, [sp, #96]
+
+    // Build an unmistakably moving orbital beacon from two phase-shifted
+    // triangle waves. Coordinates stay in the scene's 640x400 virtual space.
+    lsr     w8, w20, #1                   // one phase step every two frames
+    and     w8, w8, #255
+    sub     w9, w8, #128
+    cmp     w9, #0
+    cneg    w9, w9, lt
+    sub     w9, w9, #64
+    lsl     w9, w9, #1                    // hotspot x: -128 .. +128
+    str     w9, [sp, #104]
+
+    add     w10, w8, #64
+    and     w10, w10, #255
+    sub     w10, w10, #128
+    cmp     w10, #0
+    cneg    w10, w10, lt
+    sub     w10, w10, #64
+    asr     w10, w10, #2                  // ellipse height: -16 .. +16
+    sub     w10, w10, w9, asr #3          // match the disc's tilt
+    str     w10, [sp, #108]
     mov     w21, #0                       // y
 
 Lrow:
-    sub     w22, w21, #200                // dy
+    lsr     w8, w17, #1
+    sub     w22, w21, w8
+    ldr     w8, [sp, #96]
+    mul     w22, w22, w8                  // virtual-space dy
     mul     w23, w22, w22                 // dy squared
     mov     w24, #0                       // x
 
 Lpixel:
-    sub     w25, w24, #320                // dx
+    lsr     w8, w16, #1
+    sub     w25, w24, w8
+    ldr     w8, [sp, #96]
+    mul     w25, w25, w8                  // virtual-space dx
     mul     w26, w25, w25                 // dx squared
     add     w27, w26, w23                 // radial distance squared
 
@@ -525,7 +980,7 @@ Lpixel:
     mul     w8, w25, w22
     asr     w8, w8, #3
     add     w8, w8, w27, lsr #5
-    sub     w8, w8, w20, lsl #2
+    sub     w8, w8, w20, lsr #1
     and     w8, w8, #255
     sub     w8, w8, #128
     cmp     w8, #0
@@ -581,7 +1036,7 @@ Ldisk:
 
     // Hot material races around the ring as the frame counter advances.
     lsr     w15, w28, #8
-    add     w15, w15, w20, lsl #2
+    add     w15, w15, w20, lsr #3
     and     w15, w15, #31
     sub     w14, w14, w15
     FLOOR0  w14
@@ -601,7 +1056,7 @@ Lphoton:
     cneg    w8, w8, lt
     mov     w13, #520
     subs    w13, w13, w8
-    b.le    Lvignette
+    b.le    Lhotspot
     lsr     w13, w13, #1
     add     w10, w10, w13
     CLAMP255 w10, w14
@@ -609,6 +1064,27 @@ Lphoton:
     CLAMP255 w11, w14
     add     w12, w12, w13
     CLAMP255 w12, w14
+
+Lhotspot:
+    // A bright blue-white beacon orbits along the accretion disc. Unlike the
+    // slower nebula phase and hot bands, its translation is obvious at a
+    // glance and remains speed-consistent on a 120 Hz display.
+    ldr     w8, [sp, #104]
+    sub     w8, w25, w8
+    mul     w8, w8, w8
+    ldr     w14, [sp, #108]
+    sub     w14, w22, w14
+    mul     w14, w14, w14
+    add     w8, w8, w14
+    cmp     w8, #160
+    b.hs    Lvignette
+    mov     w13, #160
+    sub     w13, w13, w8
+    add     w10, w10, w13
+    CLAMP255 w10, w15
+    add     w11, w11, w13
+    CLAMP255 w11, w15
+    mov     w12, #255
 
 Lvignette:
     // Edge falloff gives the scene depth and makes the core feel luminous.
@@ -632,13 +1108,21 @@ Lpack:
     orr     w13, w13, w12, lsl #16
     movz    w14, #0xff00, lsl #16
     orr     w13, w13, w14
-    str     w13, [x19], #4
+
+    // Store the logical-resolution sample. NSImageView scales the freshly
+    // allocated bitmap to the fixed 640x400 presentation surface.
+    uxtw    x8, w21
+    uxtw    x9, w16
+    lsl     x9, x9, #2                    // logical row bytes
+    madd    x8, x8, x9, x19
+    uxtw    x10, w24
+    str     w13, [x8, x10, lsl #2]
 
     add     w24, w24, #1
-    cmp     w24, #WIDTH
+    cmp     w24, w16
     b.lt    Lpixel
     add     w21, w21, #1
-    cmp     w21, #HEIGHT
+    cmp     w21, w17
     b.lt    Lrow
 
     ldp     x27, x28, [sp, #80]
@@ -646,7 +1130,7 @@ Lpack:
     ldp     x23, x24, [sp, #48]
     ldp     x21, x22, [sp, #32]
     ldp     x19, x20, [sp, #16]
-    ldp     x29, x30, [sp], #96
+    ldp     x29, x30, [sp], #112
     ret
 
 // -------------------------------------------------------- shouldTerminate ---
@@ -663,10 +1147,16 @@ L_s_ctrlname:       .asciz "ASMVerseController"
 L_s_type_action:    .asciz "v@:@"
 L_s_type_bool:      .asciz "c@:@"
 L_s_title:          .asciz "ASMVERSE — pure ARM64 procedural universe"
-L_s_hud:            .asciz "ASMVERSE  //  PURE ARM64  //  ZERO VISUAL ASSETS"
+L_s_hud:            .asciz "ASMVERSE  //  STARTING LIVE TELEMETRY..."
 L_s_quit:           .asciz "Quit ASMVERSE"
 L_s_q:              .asciz "q"
+L_s_cycleResolution:.asciz "Cycle Resolution"
+L_s_r:              .asciz "r"
+L_s_resLow:         .asciz "160 x 100  LOW"
+L_s_resMedium:      .asciz "320 x 200  MED"
+L_s_resHigh:        .asciz "640 x 400  HIGH"
 L_s_deviceRGB:      .asciz "NSDeviceRGBColorSpace"
+L_fmt_stats:        .asciz "FPS %5.1f // CPU %4.1f%% // MEM %5.1f MB // %lux%lu"
 
 Ln_sharedApplication:        .asciz "sharedApplication"
 Ln_setActivationPolicy:      .asciz "setActivationPolicy:"
@@ -707,6 +1197,21 @@ Ln_initWithTitleActionKey:   .asciz "initWithTitle:action:keyEquivalent:"
 Ln_setSubmenu:               .asciz "setSubmenu:"
 Ln_terminate:                .asciz "terminate:"
 Ln_recache:                  .asciz "recache"
+Ln_setImage:                 .asciz "setImage:"
+Ln_release:                  .asciz "release"
+Ln_setStringValue:           .asciz "setStringValue:"
+Ln_setCacheMode:             .asciz "setCacheMode:"
+Ln_initWithFramePullsDown:    .asciz "initWithFrame:pullsDown:"
+Ln_addItemWithTitle:          .asciz "addItemWithTitle:"
+Ln_selectItemAtIndex:         .asciz "selectItemAtIndex:"
+Ln_indexOfSelectedItem:       .asciz "indexOfSelectedItem"
+Ln_setTarget:                 .asciz "setTarget:"
+Ln_setAction:                 .asciz "setAction:"
+Ln_resolutionChanged:         .asciz "resolutionChanged:"
+Ln_cycleResolution:           .asciz "cycleResolution:"
+Ln_mainScreen:                .asciz "mainScreen"
+Ln_maximumFramesPerSecond:    .asciz "maximumFramesPerSecond"
+Ln_display:                   .asciz "display"
 
 Lc_NSApplication:    .asciz "NSApplication"
 Lc_NSWindow:         .asciz "NSWindow"
@@ -721,15 +1226,26 @@ Lc_NSFont:           .asciz "NSFont"
 Lc_NSColor:          .asciz "NSColor"
 Lc_NSMenu:           .asciz "NSMenu"
 Lc_NSMenuItem:       .asciz "NSMenuItem"
+Lc_NSPopUpButton:    .asciz "NSPopUpButton"
+Lc_NSScreen:          .asciz "NSScreen"
 
 .section __TEXT,__const
 .p2align 3
 L_c_size:          .double 640.0, 400.0
 L_c_frame:         .double 0.0, 0.0, 640.0, 400.0
-L_c_hudframe:      .double 14.0, 370.0, 500.0, 20.0
+L_c_hudframe:      .double 14.0, 370.0, 475.0, 20.0
+L_c_popupframe:    .double 495.0, 365.0, 132.0, 27.0
 L_c_hudfont:       .double 12.0
 L_c_hudalpha:      .double 0.78
-L_c_frameInterval: .double 0.03333333333333333
+L_c_one:           .double 1.0
+L_c_million:       .double 1000000.0
+L_c_hundred:       .double 100.0
+L_c_megabyte:      .double 1048576.0
+
+_resolutionTable:
+    .quad 160, 100, 4
+    .quad 320, 200, 2
+    .quad 640, 400, 1
 
 .section __DATA,__data
 .p2align 3
@@ -773,6 +1289,21 @@ _sel_names:
     .quad Ln_setSubmenu
     .quad Ln_terminate
     .quad Ln_recache
+    .quad Ln_setImage
+    .quad Ln_release
+    .quad Ln_setStringValue
+    .quad Ln_setCacheMode
+    .quad Ln_initWithFramePullsDown
+    .quad Ln_addItemWithTitle
+    .quad Ln_selectItemAtIndex
+    .quad Ln_indexOfSelectedItem
+    .quad Ln_setTarget
+    .quad Ln_setAction
+    .quad Ln_resolutionChanged
+    .quad Ln_cycleResolution
+    .quad Ln_mainScreen
+    .quad Ln_maximumFramesPerSecond
+    .quad Ln_display
     .quad 0
 
 _class_names:
@@ -789,14 +1320,32 @@ _class_names:
     .quad Lc_NSColor
     .quad Lc_NSMenu
     .quad Lc_NSMenuItem
+    .quad Lc_NSPopUpButton
+    .quad Lc_NSScreen
     .quad 0
 
 _pixels:     .quad 0
-_bitmap:     .quad 0
-_image:      .quad 0
+_deviceRGB:  .quad 0
 _imageView:  .quad 0
+_hud:        .quad 0
+_popup:      .quad 0
 _controller: .quad 0
 _frame:      .quad 0
+_renderWidth:    .quad 160
+_renderHeight:   .quad 100
+_coordScale:     .quad 4
+_resolutionIndex:.quad 0
+_statsTime:  .double 0.0
+_lastCpuUs:  .quad 0
+_statsFrames:.quad 0
+_statsBuf:   .space 160
+.p2align 3
+_rusage:     .space 160
+.p2align 3
+_taskInfo:   .space 48
+_taskInfoCount:
+    .long 12
+    .space 4
 
-_sels:       .space 39 * 8
-_classes:    .space 13 * 8
+_sels:       .space 54 * 8
+_classes:    .space 15 * 8
