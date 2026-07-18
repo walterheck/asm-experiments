@@ -8,5 +8,6 @@ APIs in assembly.
 | Experiment | Description | Platform |
 | --- | --- | --- |
 | [`calc/`](calc/) | Native Cocoa calculator written in pure AArch64 assembly | Apple Silicon macOS 12+ |
+| [`asmverse/`](asmverse/) | Animated procedural universe with an integer pixel renderer | Apple Silicon macOS 12+ |
 
 Each experiment is self-contained and includes its own build instructions.
